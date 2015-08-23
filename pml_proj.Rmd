@@ -1,0 +1,66 @@
+---
+title: "PML Project"
+author: "datadavidz"
+date: "Thursday, August 20, 2015"
+output: html_document
+---
+
+##Executive Summary
+Study participants were asked to perform barbell lifts using the correct procedure and incorrectly in 5 different ways.  Data from accelerometers on the belt, forearm, arm and barbell of 6 participants was used to build a model based on a random forest algorithm to accurately classify new lifts.
+
+##Exploratory Data Analysis
+Data for the study is located at the website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+```{r}
+#Load the training data
+work.dir <- "c:/Users/David/Documents/R/"; setwd(work.dir)
+filename <- "pml-training.csv"
+pmltrain <- read.csv(filename)
+```
+
+Analysis of the first seven columns shows they are mostly identifiers for the specific lift.  These variables would not be useful for the desired purpose and were dropped.  In addition, there were many columns which appear to be summary statistics (e.g. average, skewness, kurtosis) performed after the data was collected.  These columns have a large number of NA or blank values and therefore also were dropped from the training dataset.  The resulting tidy dataset consists of 52 input variables and a single classe outcome.
+```{r}
+# Remove columns with NAs
+NAindex <- sapply(pmltrain, function(x) sum(is.na(x)), USE.NAMES = FALSE) == 0
+pmltidy <- pmltrain[NAindex]
+# Remove columns with blanks
+BLANKindex <- sapply(pmltidy, function(x) sum(x == "")) == 0
+pmltidy <- pmltidy[BLANKindex]
+# Remove the row id, user name, timestamps, window specifiers
+pmltidy <- pmltidy[,-c(1:7)]
+```
+
+Plots of the accelerometer readings shows some differences between classe.  For example, Figure 1 shows the distribution of yaw belt readings for different classes.  Classe B and Classe E have some readings which are much more negative than the other three classes.
+
+```{r}
+library(ggplot2)
+qplot(classe, yaw_belt, data=pmltrain, main="Yaw Belt Reading vs. Classe")
+```
+
+##Machine Learning Models
+The desired model will perform classification.  Models based on both a single decision tree and bagging conditional inference trees were built however the random forest model had the best prediction performance and is described here.  The training dataset was split further 70/30 into a training and test dataset using the caret package.
+```{r}
+library(caret); library(randomForest); library(lattice);
+set.seed(112211)
+inTrain <- createDataPartition(y=pmltidy$classe, p=0.7, list=FALSE)
+training <- pmltidy[inTrain,]
+testing <- pmltidy[-inTrain,]
+```
+The caret package was used to build the model based on the randomForest package.  5-fold cross-validation was performed. The model is loaded from an Rds file, if it is present.
+```{r}
+my_model_file <- "rf_model_p07.Rds"
+if (file.exists(my_model_file)) {
+  modFit <- readRDS(my_model_file)
+} else {
+  print("Modeling...")
+  tCtrl <- trainControl(method="cv", number=5)
+  modFit <- train(classe ~ ., data=training, method="rf", trControl=tCtrl, prox=TRUE)
+}
+print(modFit$finalModel)
+```
+The out of sample error was estimated by prediction of the 30% of training data held out from the model building.  The confusion matrix is displayed below.
+```{r}
+pred <- predict(modFit, testing)
+print(confusionMatrix(pred, testing$classe))
+```
+The overall accuracy was 99.37% on the held out data set with both sensitivity and specificity 99%+ for all five classes.
